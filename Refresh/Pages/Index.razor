@@ -1,0 +1,92 @@
+﻿@page "/"
+@using System.Net.Http
+@inject HttpClient httpClient
+@using System.Net
+@using System.Linq
+
+<div>
+    <h5>Hora Ejecución</h5>
+    <h5>@currentTime.ToString("HH:mm:ss")</h5>
+</div>
+
+@if (responseTimes.Count < 4)
+{
+    <p>Esperando más datos para mostrar el gráfico...</p>
+}
+else
+{
+    <MudChart ChartType="ChartType.Line" ChartSeries="@Series" XAxisLabels="@XAxisLabels" Width="100%" Height="350" ChartOptions="options" ></MudChart>
+}
+
+@code {
+    private DateTime currentTime;
+    //url a monitorear
+    private string url = "https://soundcloud.com/discover";
+
+    private ChartOptions options = new ChartOptions();
+    private List<long> responseTimes = new List<long>();
+    public List<ChartSeries> Series = new List<ChartSeries>();
+
+    protected override void OnInitialized()
+    {
+        UpdateTime();
+        var timer = new System.Timers.Timer(1000);
+        timer.Elapsed += (sender, e) => { UpdateTime(); };
+        timer.Start();
+
+        options.InterpolationOption = InterpolationOption.NaturalSpline;
+        options.YAxisFormat = "c2";
+
+        var checkTimer = new System.Threading.Timer(CheckWebsite, url, TimeSpan.Zero, TimeSpan.FromSeconds(4));
+    }
+
+    private async void UpdateTime()
+    {
+        currentTime = DateTime.Now;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    public string[] XAxisLabels => Enumerable.Range(1, responseTimes.Count).Select(i => i.ToString()).ToArray();
+
+    private async void CheckWebsite(object state)
+    {
+        string url = (string)state;
+
+        try
+        {
+            var startTime = DateTime.Now;
+            var response = await httpClient.GetAsync(url);
+            var endTime = DateTime.Now;
+
+            if (response.IsSuccessStatusCode)
+            {
+                var responseTime = (endTime - startTime).TotalMilliseconds;
+
+                InvokeAsync(() =>
+                {
+                    if (responseTimes.Count >= 10)
+                    {
+                        responseTimes.RemoveAt(0);
+                    }
+
+                    responseTimes.Add((long)responseTime);
+                    Series = new List<ChartSeries>
+                        {
+                        new ChartSeries { Name = "Tiempo de respuesta", Data = responseTimes.Select(rt => (double)rt).ToArray() }
+                        };
+                    StateHasChanged();
+                });
+
+                Console.WriteLine($"La página {url} está accesible. Tiempo de respuesta: {responseTime} ms");
+            }
+            else
+            {
+                Console.WriteLine($"No se pudo acceder a la página {url}. Estado: {response.StatusCode}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error al intentar acceder a la página {url}: {ex.Message}");
+        }
+    }
+}
